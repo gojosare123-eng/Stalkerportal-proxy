@@ -1,145 +1,164 @@
-export default async function handler(req, res) {
+const portal = 'http://livebox.pro:80';
+const mac = '00:1A:79:BE:B2:2A';
+const serial = '7A1DE24D58D09';
+const devId1 = '57E5D445136970ACB5AFCE3A1AE6B518C249C8C06AB34906332C361A79E33B03';
+const devId2 = '3A599F57B7AAF0C10D9EB819D84DBF5C4D249280489E37B255BD5CFB961597B8';
+const signature = 'FA7708B8ED654721748BA69C22E63BD4CB5EF1EF425ABC8FC364DEDF87C55629';
+
+const userAgent = 'Mozilla/5.0 (QtEmbedded; U; Linux; C) AppleWebKit/533.3 (KHTML, like Gecko) MAG250 mag325 r11';
+
+async function handshake(portalServer) {
   try {
-    const portal = 'http://fastshare1.com';
-    const mac = '00:1A:79:00:00:85';
-    const serial = '6DEF806CD697C';
-    const devId1 = '120EED9C67A557E1BEC86457271B54DB5FD4E38E3AB9C56A01AC90A2F50EE949';
-    const devId2 = '120EED9C67A557E1BEC86457271B54DB5FD4E38E3AB9C56A01AC90A2F50EE949';
-    const signature = '56D3F7821D31B67499BA971E7D43A9FD6E216636A92C2676F5BD5DF3A07F9EDE';
-    
-
-    // Step 1: Handshake
-    console.log('Handshake...');
-    const hsResp = await fetch(
-      `${portalServer}/stalker_portal/server/load.php?type=stb&action=handshake&token=&JsHttpRequest=1-xml`,
-      {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (QtEmbedded; U; Linux; C) AppleWebKit/533.3 (KHTML, like Gecko) MAG250 mag325 r11',
-          'X-User-Agent': 'Model: MAG525; Link: WiFi',
-          'Authorization': 'Bearer ',
-          'Cookie': 'mac=' + encodeURIComponent(mac),
-          'Referer': portal + '/'
-        }
+    const response = await fetch(`${portalServer}/stalker_portal/server/load.php?type=stb&action=handshake&token=&JsHttpRequest=1-xml`, {
+      headers: {
+        'User-Agent': userAgent,
+        'X-User-Agent': 'Model: MAG525; Link: WiFi',
+        'Authorization': 'Bearer ',
+        'Cookie': `mac=${encodeURIComponent(mac)}`,
+        'Referer': portal + '/'
       }
-    );
-    const hsText = await hsResp.text();
-    console.log('Handshake response:', hsText.substring(0, 200));
+    });
 
-    // Extract token
+    const text = await response.text();
+    console.log('Handshake response:', text.substring(0, 200));
+
     let token = '';
     try {
-      const hsJson = JSON.parse(hsText.replace('/*', '').replace('*/', ''));
-      token = hsJson?.js?.token || '';
-    } catch(e) {
-      // Try to find token in response
-      const match = hsText.match(/token["':\s]+["']?([^"'\s,}]+)/);
-      token = match ? match[1] : '';
+      const json = JSON.parse(text.replace('/*', '').replace('*/', ''));
+      token = json?.js?.token || '';
+    } catch (error) {
+      console.error('Error parsing handshake response:', error);
     }
 
     if (!token) {
-      // Try generating token via create_token
       console.log('Creating token...');
-      const ctResp = await fetch(
-        `${portalServer}/stalker_portal/server/load.php?type=stb&action=create_token&token=&JsHttpRequest=1-xml`,
-        {
-          headers: {
-            'User-Agent': 'Mozilla/5.0 (QtEmbedded; U; Linux; C) AppleWebKit/533.3',
-            'Referer': portal + '/',
-            'Cookie': 'mac=' + encodeURIComponent(mac)
-          }
+      const createTokenResponse = await fetch(`${portalServer}/stalker_portal/server/load.php?type=stb&action=create_token&token=&JsHttpRequest=1-xml`, {
+        headers: {
+          'User-Agent': userAgent,
+          'Referer': portal + '/',
+          'Cookie': `mac=${encodeURIComponent(mac)}`
         }
-      );
-      const ctText = await ctResp.text();
-      const ctJson = JSON.parse(ctText.replace('/*', '').replace('*/', ''));
-      token = ctJson?.js?.token || '';
+      });
+
+      const createTokenText = await createTokenResponse.text();
+      const createTokenJson = JSON.parse(createTokenText.replace('/*', '').replace('*/', ''));
+      token = createTokenJson?.js?.token || '';
     }
 
     console.log('Token:', token);
+    return token;
+  } catch (error) {
+    console.error('Error during handshake:', error);
+    return null;
+  }
+}
 
-    // Step 2: Get profile (account info)
-    console.log('Getting profile...');
-    const profileResp = await fetch(
-      `${portalServer}/stalker_portal/server/load.php?type=account_info&action=get_main_info&JsHttpRequest=1-xml`,
-      {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (QtEmbedded; U; Linux; C) AppleWebKit/533.3',
-          'Authorization': 'Bearer ' + token,
-          'Cookie': 'mac=' + encodeURIComponent(mac) + '; token=' + token,
-          'Referer': portal + '/'
-        }
+async function getProfile(portalServer, token) {
+  try {
+    const response = await fetch(`${portalServer}/stalker_portal/server/load.php?type=account_info&action=get_main_info&JsHttpRequest=1-xml`, {
+      headers: {
+        'User-Agent': userAgent,
+        'Authorization': `Bearer ${token}`,
+        'Cookie': `mac=${encodeURIComponent(mac)}; token=${token}`,
+        'Referer': portal + '/'
       }
-    );
-    const profileText = await profileResp.text();
-    console.log('Profile:', profileText.substring(0, 300));
+    });
 
-    // Step 3: Get all channels
-    console.log('Getting channels...');
-    const chResp = await fetch(
-      `${portalServer}/stalker_portal/server/load.php?type=itv&action=get_all_channels&JsHttpRequest=1-xml`,
-      {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (QtEmbedded; U; Linux; C) AppleWebKit/533.3',
-          'Authorization': 'Bearer ' + token,
-          'Cookie': 'mac=' + encodeURIComponent(mac) + '; token=' + token,
-          'Referer': portal + '/'
-        }
+    const text = await response.text();
+    console.log('Profile:', text.substring(0, 300));
+    return text;
+  } catch (error) {
+    console.error('Error getting profile:', error);
+    return null;
+  }
+}
+
+async function getChannels(portalServer, token) {
+  try {
+    const response = await fetch(`${portalServer}/stalker_portal/server/load.php?type=itv&action=get_all_channels&JsHttpRequest=1-xml`, {
+      headers: {
+        'User-Agent': userAgent,
+        'Authorization': `Bearer ${token}`,
+        'Cookie': `mac=${encodeURIComponent(mac)}; token=${token}`,
+        'Referer': portal + '/'
       }
-    );
-    const chText = await chResp.text();
-    console.log('Channels response:', chText.substring(0, 200));
+    });
 
-    // Parse channels
+    const text = await response.text();
+    console.log('Channels response:', text.substring(0, 200));
+
     let channels = [];
     try {
-      const cleanJson = chText.replace(/\/\*([\s\S]*?)\*\//, '$1');
-      const chJson = JSON.parse(cleanJson);
-      channels = chJson.js?.data || chJson?.data || [];
-    } catch(e) {
-      console.error('Parse error:', e.message);
+      const json = JSON.parse(text.replace(/\/\*([\s\S]*?)\*\//, '$1'));
+      channels = json.js?.data || json?.data || [];
+    } catch (error) {
+      console.error('Error parsing channels response:', error);
     }
 
-    // Build M3U
-    let m3u = '#EXTM3U\n';
-    
-    for (const ch of channels) {
-      const name = ch.name || `Channel ${ch.id || ch.channel_id || ''}`;
-      const logo = ch.logo || ch.tv_logo || ch.stream_icon || '';
-      const cmd = ch.cmd || '';
-      const num = ch.number || '';
-      
-      // Stream URL is usually in cmd field or constructed
-      let streamUrl = cmd;
-      if (!streamUrl && ch.channel_id) {
-        streamUrl = `${portalServer}/stalker_portal/server/load.php?type=itv&action=create_link&JsHttpRequest=1-xml&channel_id=${ch.channel_id}`;
-      }
-      
-      if (streamUrl) {
-        m3u += `#EXTINF:-1 tvg-id="${ch.channel_id || ch.id || ''}" tvg-name="${name.replace(/,/g, '')}" tvg-logo="${logo}" group-title="${ch.genres_name || ch.genre || 'General'}",${num ? num + '. ' : ''}${name}\n`;
-        m3u += `${streamUrl}\n`;
-      }
+    return channels;
+  } catch (error) {
+    console.error('Error getting channels:', error);
+    return [];
+  }
+}
+
+async function buildM3U(channels, portalServer) {
+  let m3u = '#EXTM3U\n';
+
+  for (const channel of channels) {
+    const name = channel.name || `Channel ${channel.id || channel.channel_id || ''}`;
+    const logo = channel.logo || channel.tv_logo || channel.stream_icon || '';
+    const cmd = channel.cmd || '';
+    const num = channel.number || '';
+
+    let streamUrl = cmd;
+    if (!streamUrl && channel.channel_id) {
+      streamUrl = `${portalServer}/stalker_portal/server/load.php?type=itv&action=create_link&JsHttpRequest=1-xml&channel_id=${channel.channel_id}`;
     }
 
-    // If no channels from API, try alternative method
+    if (streamUrl) {
+      m3u += `#EXTINF:-1 tvg-id="${channel.channel_id || channel.id || ''}" tvg-name="${name.replace(/,/g, '')}" tvg-logo="${logo}" group-title="${channel.genres_name || channel.genre || 'General'}",${num ? num + '. ' : ''}${name}\n`;
+      m3u += `${streamUrl}\n`;
+    }
+  }
+
+  return m3u;
+}
+
+export default async function handler(req, res) {
+  try {
+    const portalServer = portal.replace('/c', '');
+    const token = await handshake(portalServer);
+
+    if (!token) {
+      console.error('Failed to obtain token');
+      res.status(500).send('#EXTM3U\n#EXTINF:-1,Error: Failed to obtain token\n');
+      return;
+    }
+
+    await getProfile(portalServer, token);
+    const channels = await getChannels(portalServer, token);
+
     if (channels.length === 0) {
       console.log('Trying alternative channel fetch...');
-      const altResp = await fetch(
-        `${portalServer}/stalker_portal/server/load.php?type=itv&action=get_genres&JsHttpRequest=1-xml`,
-        { headers: {
-          'User-Agent': 'Mozilla/5.0 (QtEmbedded; U; Linux; C) AppleWebKit/533.3',
-          'Authorization': 'Bearer ' + token,
-          'Cookie': 'mac=' + encodeURIComponent(mac) + '; token=' + token,
+      const altResponse = await fetch(`${portalServer}/stalker_portal/server/load.php?type=itv&action=get_genres&JsHttpRequest=1-xml`, {
+        headers: {
+          'User-Agent': userAgent,
+          'Authorization': `Bearer ${token}`,
+          'Cookie': `mac=${encodeURIComponent(mac)}; token=${token}`,
           'Referer': portal + '/'
-        }}
-      );
-      console.log('Genres:', await altResp.text().substring(0, 500));
+        }
+      });
+      console.log('Genres:', await altResponse.text().substring(0, 500));
     }
+
+    const m3u = await buildM3U(channels, portalServer);
 
     res.setHeader('Content-Type', 'application/vnd.apple.mpegurl; charset=utf-8');
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.send(m3u);
-
-  } catch(e) {
-    console.error('Fatal error:', e);
-    res.status(500).send('#EXTM3U\n#EXTINF:-1,Error: ' + e.message + '\n');
+  } catch (error) {
+    console.error('Fatal error:', error);
+    res.status(500).send('#EXTM3U\n#EXTINF:-1,Error: ' + error.message + '\n');
   }
 }
