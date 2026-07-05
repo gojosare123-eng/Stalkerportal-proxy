@@ -1,15 +1,4 @@
 {
-  "name": "dalo",
-  "version": "2.0.0",
-  "description": "Stalker Portal to M3U playlist converter with full handshake + do_auth + create_link",
-  "main": "index.js",
-  "bin": {
-    "dalo": "index.js"
-  },
-  "scripts": {
-    "start": "node index.js"
-  },
-  "dependencies": {
-    "node-fetch": "^2.7.0"
-  }
+  "name": "stalker-m3u",
+  "type": "module"
 }
