@@ -1,0 +1,16 @@
+{
+  "rewrites": [
+    {
+      "source": "/api/mac/playlist.m3u",
+      "destination": "/api/mac/playlist.m3u"
+    }
+  ],
+  "headers": [
+    {
+      "source": "/api/mac/playlist.m3u",
+      "headers": [
+        { "key": "Content-Type", "value": "text/plain; charset=utf-8" }
+      ]
+    }
+  ]
+}
