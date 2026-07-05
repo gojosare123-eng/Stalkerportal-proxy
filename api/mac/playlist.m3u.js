@@ -1,12 +1,12 @@
 export default async function handler(req, res) {
   try {
-    const portal = 'http://livebox.pro:80';
-    const mac = '00:1A:79:BE:B2:2A';
-    const serial = '7A1DE24D58D09';
-    const devId1 = '57E5D445136970ACB5AFCE3A1AE6B518C249C8C06AB34906332C361A79E33B03';
-    const devId2 = '3A599F57B7AAF0C10D9EB819D84DBF5C4D249280489E37B255BD5CFB961597B8';
-    const signature = 'FA7708B8ED654721748BA69C22E63BD4CB5EF1EF425ABC8FC364DEDF87C55629';
-    const portalServer = portal.replace('/c', '');
+    const portal = 'http://fastshare1.com';
+    const mac = '00:1A:79:00:00:85';
+    const serial = '6DEF806CD697C';
+    const devId1 = '120EED9C67A557E1BEC86457271B54DB5FD4E38E3AB9C56A01AC90A2F50EE949';
+    const devId2 = '120EED9C67A557E1BEC86457271B54DB5FD4E38E3AB9C56A01AC90A2F50EE949';
+    const signature = '56D3F7821D31B67499BA971E7D43A9FD6E216636A92C2676F5BD5DF3A07F9EDE';
+    
 
     // Step 1: Handshake
     console.log('Handshake...');
