@@ -1,162 +1,145 @@
-const fetch = require('node-fetch');
+export default async function handler(req, res) {
+  try {
+    const portal = 'http://livebox.pro:80';
+    const mac = '00:1A:79:BE:B2:2A';
+    const serial = '7A1DE24D58D09';
+    const devId1 = '57E5D445136970ACB5AFCE3A1AE6B518C249C8C06AB34906332C361A79E33B03';
+    const devId2 = '3A599F57B7AAF0C10D9EB819D84DBF5C4D249280489E37B255BD5CFB961597B8';
+    const signature = 'FA7708B8ED654721748BA69C22E63BD4CB5EF1EF425ABC8FC364DEDF87C55629';
+    const portalServer = portal.replace('/c', '');
 
-// ─── CONFIG ────────────────────────────────────────────────────────────────
-// These can come from env vars, query params, or be hardcoded per user
-const PORTAL_BASE = process.env.PORTAL_BASE || 'http://fastshare1.com';
-const MAC         = process.env.MAC         || '00:1A:79:00:00:AB';
+    // Step 1: Handshake
+    console.log('Handshake...');
+    const hsResp = await fetch(
+      `${portalServer}/stalker_portal/server/load.php?type=stb&action=handshake&token=&JsHttpRequest=1-xml`,
+      {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (QtEmbedded; U; Linux; C) AppleWebKit/533.3 (KHTML, like Gecko) MAG250 mag325 r11',
+          'X-User-Agent': 'Model: MAG525; Link: WiFi',
+          'Authorization': 'Bearer ',
+          'Cookie': 'mac=' + encodeURIComponent(mac),
+          'Referer': portal + '/'
+        }
+      }
+    );
+    const hsText = await hsResp.text();
+    console.log('Handshake response:', hsText.substring(0, 200));
 
-// Device metadata (from your scan output — needed for do_auth step)
-const DEVICE_SERIAL   = process.env.SERIAL   || 'e563827bf816922617eeb4cc9100be92';
-const DEVICE_ID_1     = process.env.DEVICE_ID || 'E08C16913E4230E2F374BACE769DB9D539E5AFCE37F9CD1CEADFF0A442E5A474';
-const DEVICE_ID_2     = process.env.DEVICE_ID2 || 'E08C16913E4230E2F374BACE769DB9D539E5AFCE37F9CD1CEADFF0A442E5A474';
-const DEVICE_SIGNATURE = process.env.SIGNATURE || 'A3EE5C98FD598613A780B944CC1E170070B9A92A5BF0F5D3686B66384EDA7882';
-// ───────────────────────────────────────────────────────────────────────────
+    // Extract token
+    let token = '';
+    try {
+      const hsJson = JSON.parse(hsText.replace('/*', '').replace('*/', ''));
+      token = hsJson?.js?.token || '';
+    } catch(e) {
+      // Try to find token in response
+      const match = hsText.match(/token["':\s]+["']?([^"'\s,}]+)/);
+      token = match ? match[1] : '';
+    }
 
-// Helper: build base cookie string
-function buildCookie(mac, serial) {
-  let cookie = `mac=${mac}; stb_lang=en; timezone=UTC; PHPSESSID=null`;
-  if (serial) cookie += `; sn=${serial}`;
-  return cookie;
+    if (!token) {
+      // Try generating token via create_token
+      console.log('Creating token...');
+      const ctResp = await fetch(
+        `${portalServer}/stalker_portal/server/load.php?type=stb&action=create_token&token=&JsHttpRequest=1-xml`,
+        {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (QtEmbedded; U; Linux; C) AppleWebKit/533.3',
+            'Referer': portal + '/',
+            'Cookie': 'mac=' + encodeURIComponent(mac)
+          }
+        }
+      );
+      const ctText = await ctResp.text();
+      const ctJson = JSON.parse(ctText.replace('/*', '').replace('*/', ''));
+      token = ctJson?.js?.token || '';
+    }
+
+    console.log('Token:', token);
+
+    // Step 2: Get profile (account info)
+    console.log('Getting profile...');
+    const profileResp = await fetch(
+      `${portalServer}/stalker_portal/server/load.php?type=account_info&action=get_main_info&JsHttpRequest=1-xml`,
+      {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (QtEmbedded; U; Linux; C) AppleWebKit/533.3',
+          'Authorization': 'Bearer ' + token,
+          'Cookie': 'mac=' + encodeURIComponent(mac) + '; token=' + token,
+          'Referer': portal + '/'
+        }
+      }
+    );
+    const profileText = await profileResp.text();
+    console.log('Profile:', profileText.substring(0, 300));
+
+    // Step 3: Get all channels
+    console.log('Getting channels...');
+    const chResp = await fetch(
+      `${portalServer}/stalker_portal/server/load.php?type=itv&action=get_all_channels&JsHttpRequest=1-xml`,
+      {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (QtEmbedded; U; Linux; C) AppleWebKit/533.3',
+          'Authorization': 'Bearer ' + token,
+          'Cookie': 'mac=' + encodeURIComponent(mac) + '; token=' + token,
+          'Referer': portal + '/'
+        }
+      }
+    );
+    const chText = await chResp.text();
+    console.log('Channels response:', chText.substring(0, 200));
+
+    // Parse channels
+    let channels = [];
+    try {
+      const cleanJson = chText.replace(/\/\*([\s\S]*?)\*\//, '$1');
+      const chJson = JSON.parse(cleanJson);
+      channels = chJson.js?.data || chJson?.data || [];
+    } catch(e) {
+      console.error('Parse error:', e.message);
+    }
+
+    // Build M3U
+    let m3u = '#EXTM3U\n';
+    
+    for (const ch of channels) {
+      const name = ch.name || `Channel ${ch.id || ch.channel_id || ''}`;
+      const logo = ch.logo || ch.tv_logo || ch.stream_icon || '';
+      const cmd = ch.cmd || '';
+      const num = ch.number || '';
+      
+      // Stream URL is usually in cmd field or constructed
+      let streamUrl = cmd;
+      if (!streamUrl && ch.channel_id) {
+        streamUrl = `${portalServer}/stalker_portal/server/load.php?type=itv&action=create_link&JsHttpRequest=1-xml&channel_id=${ch.channel_id}`;
+      }
+      
+      if (streamUrl) {
+        m3u += `#EXTINF:-1 tvg-id="${ch.channel_id || ch.id || ''}" tvg-name="${name.replace(/,/g, '')}" tvg-logo="${logo}" group-title="${ch.genres_name || ch.genre || 'General'}",${num ? num + '. ' : ''}${name}\n`;
+        m3u += `${streamUrl}\n`;
+      }
+    }
+
+    // If no channels from API, try alternative method
+    if (channels.length === 0) {
+      console.log('Trying alternative channel fetch...');
+      const altResp = await fetch(
+        `${portalServer}/stalker_portal/server/load.php?type=itv&action=get_genres&JsHttpRequest=1-xml`,
+        { headers: {
+          'User-Agent': 'Mozilla/5.0 (QtEmbedded; U; Linux; C) AppleWebKit/533.3',
+          'Authorization': 'Bearer ' + token,
+          'Cookie': 'mac=' + encodeURIComponent(mac) + '; token=' + token,
+          'Referer': portal + '/'
+        }}
+      );
+      console.log('Genres:', await altResp.text().substring(0, 500));
+    }
+
+    res.setHeader('Content-Type', 'application/vnd.apple.mpegurl; charset=utf-8');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.send(m3u);
+
+  } catch(e) {
+    console.error('Fatal error:', e);
+    res.status(500).send('#EXTM3U\n#EXTINF:-1,Error: ' + e.message + '\n');
+  }
 }
-
-module.exports = async (req, res) => {
-  // ─── Allow dynamic MAC via query param ───
-  const mac = req.query.mac || MAC;
-  const serial = req.query.serial || DEVICE_SERIAL;
-  const deviceId1 = req.query.device_id || DEVICE_ID_1;
-  const deviceId2 = req.query.device_id2 || DEVICE_ID_2;
-  const signature = req.query.signature || DEVICE_SIGNATURE;
-  const base = req.query.base || PORTAL_BASE;
-
-  const cookie = buildCookie(mac, serial);
-
-  // ─── STEP 1: Handshake ─────────────────────────────────────────────────
-  // Sends empty token first, server returns a valid token
-  const handshakeUrl = `${base}/portal.php?type=stb&action=handshake&prehash=0&token=&JsHttpRequest=1-xml`;
-
-  let resp = await fetch(handshakeUrl, {
-    headers: {
-      'User-Agent': 'Mozilla/5.0 (QtEmbedded; U; Linux; C) AppleWebKit/533.3 (KHTML, like Gecko) MAG254 stbapp ver: 4 rev: 2116 Mobile Safari/533.3',
-      'X-User-Agent': 'Model: MAG254; Link: Ethernet',
-      'Cookie': cookie
-    }
-  });
-
-  let text = await resp.text();
-  let data;
-
-  try {
-    data = JSON.parse(text);
-  } catch (e) {
-    // Some portals return malformed JSON. Try to extract token manually
-    const match = text.match(/"token"\s*:\s*"([^"]+)"/i);
-    if (match) {
-      data = { js: { token: match[1] } };
-    } else {
-      return res.status(500).send(`# Handshake failed - raw response:\n${text}`);
-    }
-  }
-
-  const token = data.js?.token || data.js?.Token;
-  if (!token) {
-    return res.status(500).send(`# No token received in handshake:\n${text}`);
-  }
-
-  // ─── STEP 2: Authenticate (do_auth) ────────────────────────────────────
-  // This binds the device metadata to the session. CRITICAL for strict portals.
-  const authUrl = `${base}/portal.php?type=stb&action=do_auth` +
-    `&login=&password=` +
-    `&device_id=${encodeURIComponent(deviceId1)}` +
-    `&device_id2=${encodeURIComponent(deviceId2)}` +
-    `&signature=${encodeURIComponent(signature)}` +
-    `&sn=${encodeURIComponent(serial)}` +
-    `&JsHttpRequest=1-xml`;
-
-  resp = await fetch(authUrl, {
-    headers: {
-      'User-Agent': 'Mozilla/5.0 (QtEmbedded; U; Linux; C) AppleWebKit/533.3 (KHTML, like Gecko) MAG254 stbapp ver: 4 rev: 2116 Mobile Safari/533.3',
-      'X-User-Agent': 'Model: MAG254; Link: Ethernet',
-      'Cookie': cookie,
-      'Authorization': `Bearer ${token}`
-    }
-  });
-
-  text = await resp.text();
-  try {
-    data = JSON.parse(text);
-    console.log('[do_auth]', data);
-  } catch (e) {
-    // Non-fatal — some portals accept silently
-    console.log('[do_auth raw]', text);
-  }
-
-  // ─── STEP 3: Get channel list ──────────────────────────────────────────
-  const channelsUrl = `${base}/portal.php?type=itv&action=get_all_channels&force_ch_link_check=&JsHttpRequest=1-xml`;
-
-  resp = await fetch(channelsUrl, {
-    headers: {
-      'User-Agent': 'Mozilla/5.0 (QtEmbedded; U; Linux; C) AppleWebKit/533.3 (KHTML, like Gecko) MAG254 stbapp ver: 4 rev: 2116 Mobile Safari/533.3',
-      'X-User-Agent': 'Model: MAG254; Link: Ethernet',
-      'Cookie': cookie,
-      'Authorization': `Bearer ${token}`
-    }
-  });
-
-  text = await resp.text();
-
-  if (resp.status !== 200) {
-    return res.status(500).send(
-      `# Portal returned HTTP ${resp.status}\n` +
-      `# URL: ${channelsUrl}\n` +
-      `# Token: ${token}\n` +
-      `# MAC: ${mac}\n` +
-      `# Response:\n${text}`
-    );
-  }
-
-  let channelsData;
-  try {
-    channelsData = JSON.parse(text);
-  } catch (e) {
-    return res.status(500).send(`# Failed to parse channels JSON:\n${text}`);
-  }
-
-  const channels = channelsData.js?.data;
-  if (!channels || !Array.isArray(channels)) {
-    return res.status(500).send(
-      `# No channel data found in response.\n` +
-      `# Full response:\n${JSON.stringify(channelsData, null, 2)}`
-    );
-  }
-
-  // ─── STEP 4: Build M3U playlist ────────────────────────────────────────
-  const lines = ['#EXTM3U'];
-
-  for (const ch of channels) {
-    const name = ch.name || 'Unknown';
-    const logo = ch.logo || '';
-    const cmd = ch.cmds?.[0]?.url || ch.cmd || '';
-
-    // EXTINF line
-    lines.push(
-      `#EXTINF:-1 ` +
-      `tvg-id="${ch.id || ''}" ` +
-      `tvg-name="${name.replace(/,/g, '')}" ` +
-      `tvg-logo="${logo}",${name}`
-    );
-
-    // Stream URL
-    if (cmd) {
-      lines.push(cmd);
-    } else {
-      lines.push('# NO STREAM URL');
-    }
-  }
-
-  const playlist = lines.join('\n');
-
-  // Set proper headers for M3U download
-  res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-  res.setHeader('Content-Disposition', `attachment; filename="playlist.m3u"`);
-  res.status(200).send(playlist);
-};
